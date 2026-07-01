@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>나의 마음 리포트 · NeuroScape</title>
+<style>
+  :root{--teal:#34d3b0;--pink:#d98fd0;--amber:#e0b654;--rose:#e8798f;
+    --grad:linear-gradient(135deg,#34d3b0,#7fd0e0 45%,#d98fd0)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(120% 80% at 50% -10%,#16213e,#0a0e1a 60%);
+    color:#e6ebf5;font-family:"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",sans-serif;
+    min-height:100vh;padding:26px 18px 46px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:440px;margin:0 auto}
+  .brand{display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:6px}
+  .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#34d3b0,#d98fd0);
+    display:grid;place-items:center;color:#07130f;font-size:20px;font-weight:800;overflow:hidden}
+  .logo img{width:100%;height:100%;object-fit:contain}
+  .brand b{font-size:15px}.brand span{font-size:10px;color:#5f6b85;letter-spacing:1px}
+  h1{font-size:26px;text-align:center;margin:20px 0 4px;letter-spacing:-.4px}
+  .grad{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .sub{text-align:center;color:#9aa6be;font-size:13px;margin-bottom:22px}
+  .card{background:linear-gradient(160deg,#141b2e,#111728);border:1px solid #28304c;
+    border-radius:20px;padding:20px;margin-bottom:15px}
+  .ch{font-size:12px;font-weight:700;color:#9aa6be;letter-spacing:.4px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+  .grade{font-size:11px;color:var(--teal);background:rgba(52,211,176,.12);border:1px solid rgba(52,211,176,.3);
+    border-radius:6px;padding:3px 9px;font-weight:700}
+  .cmp{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .col{flex:1;text-align:center;background:#0d1324;border:1px solid #28304c;border-radius:16px;padding:16px 10px}
+  .cap{font-size:12px;color:#5f6b85;margin-bottom:8px}
+  .score{font-size:42px;font-weight:800;line-height:1;font-family:"Consolas",monospace}
+  .col.pre .score{background:linear-gradient(135deg,#8892a8,#c7cfe0);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .col.post .score{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .avg{font-size:11px;color:#9aa6be;margin-top:7px;font-family:"Consolas",monospace}
+  .arrow{color:#5f6b85;font-size:22px}
+  .delta{margin-top:16px;text-align:center;font-weight:800;font-size:17px;padding:12px;border-radius:12px}
+  .delta.up{color:var(--teal);background:rgba(52,211,176,.12);border:1px solid rgba(52,211,176,.3)}
+  .delta.down{color:var(--rose);background:rgba(232,121,143,.12);border:1px solid rgba(232,121,143,.3)}
+  .world{text-align:center;font-size:40px;margin:2px 0 12px}
+  canvas{width:100%;display:block;border-radius:12px}
+  .spark-x{display:flex;justify-content:space-between;color:#5f6b85;font-size:10.5px;margin-top:6px}
+  .rows{display:grid;gap:10px}
+  .row{display:flex;justify-content:space-between;align-items:center;font-size:14px;
+    padding:13px 15px;background:#0d1324;border:1px solid #28304c;border-radius:13px}
+  .row .k{color:#9aa6be}.row .v{font-weight:700;font-family:"Consolas",monospace}
+  .row .v.good{color:var(--teal)}.row .v.warn{color:var(--amber)}
+  .msg{text-align:center;font-size:15px;line-height:1.75;color:#dfe5f0;padding:4px}
+  .foot{text-align:center;color:#5f6b85;font-size:11px;margin-top:18px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><div class="logo"><img src="logo.png" alt="N" onerror="this.remove()"></div>
+    <div><b>NeuroScape</b><br><span>EEG MEDITATION</span></div></div>
+  <h1>나의 <span class="grad">마음 리포트</span></h1>
+  <p class="sub" id="ts">—</p>
+
+  <div class="card">
+    <div class="ch"><span>안정 점수 변화</span><span class="grade" id="grade">—</span></div>
+    <div class="world" id="world">🧘</div>
+    <div class="cmp">
+      <div class="col pre"><div class="cap">체험 전</div><div class="score" id="preScore">–</div><div class="avg" id="preAvg"></div></div>
+      <div class="arrow">→</div>
+      <div class="col post"><div class="cap">체험 후</div><div class="score" id="postScore">–</div><div class="avg" id="postAvg"></div></div>
+    </div>
+    <div class="delta" id="delta">–</div>
+  </div>
+
+  <div class="card">
+    <div class="ch"><span>마음 안정도 궤적</span></div>
+    <canvas id="spark" height="150"></canvas>
+    <div class="spark-x"><span>체험 시작</span><span>체험 종료</span></div>
+  </div>
+
+  <div class="card">
+    <div class="rows">
+      <div class="row"><span class="k">긴장 감소율</span><span class="v good" id="reduce">–</span></div>
+      <div class="row"><span class="k">가장 고요했던 순간</span><span class="v good" id="calmest">–</span></div>
+      <div class="row"><span class="k">가장 긴장했던 순간</span><span class="v warn" id="peak">–</span></div>
+      <div class="row"><span class="k">마음의 흔들림</span><span class="v" id="vary">–</span></div>
+      <div class="row"><span class="k">진정까지 걸린 시간</span><span class="v" id="calmT">–</span></div>
+      <div class="row"><span class="k">전체 세션 시간</span><span class="v" id="sessT">–</span></div>
+      <div class="row"><span class="k">향한 세계</span><span class="v" id="worldT">–</span></div>
+      <div class="row"><span class="k">명상 완성</span><span class="v" id="calmed">–</span></div>
+    </div>
+  </div>
+
+  <div class="card"><div class="msg" id="msg">—</div></div>
+  <div class="foot">EEG 진폭 기반 진정도 분석 · 개인 참고용<br>NeuroScape · EEG Meditation</div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const sc=a=>Math.max(0,Math.min(100,Math.round(100-a*2.5)));
+function fmt(s){s=Math.max(0,s|0);const m=(s/60|0),ss=s%60;return m>0?`${m}분 ${ss}초`:`${ss}초`;}
+
+function drawSpark(journey){
+  const cv=$('spark'),ctx=cv.getContext('2d');
+  const dpr=window.devicePixelRatio||1, W=cv.clientWidth, H=150;
+  cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+  const pad=10, scores=journey.map(sc);
+  ctx.strokeStyle='rgba(40,48,76,.6)';ctx.lineWidth=1;
+  for(let i=0;i<=3;i++){const y=pad+i*(H-2*pad)/3;ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(W-pad,y);ctx.stroke();}
+  if(scores.length<2){return;}
+  const n=scores.length;
+  const xf=i=>pad+i/(n-1)*(W-2*pad);
+  const yf=v=>(H-pad)-(v/100)*(H-2*pad);
+  const pts=scores.map((v,i)=>[xf(i),yf(v)]);
+  function curve(){ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
+    for(let i=0;i<n-1;i++){const p0=pts[i-1]||pts[i],p1=pts[i],p2=pts[i+1],p3=pts[i+2]||p2;
+      ctx.bezierCurveTo(p1[0]+(p2[0]-p0[0])/6,p1[1]+(p2[1]-p0[1])/6,p2[0]-(p3[0]-p1[0])/6,p2[1]-(p3[1]-p1[1])/6,p2[0],p2[1]);}}
+  curve();ctx.lineTo(pts[n-1][0],H-pad);ctx.lineTo(pts[0][0],H-pad);ctx.closePath();
+  const fg=ctx.createLinearGradient(0,pad,0,H-pad);
+  fg.addColorStop(0,'rgba(52,211,176,.30)');fg.addColorStop(1,'rgba(52,211,176,0)');
+  ctx.fillStyle=fg;ctx.fill();
+  const lg=ctx.createLinearGradient(0,0,W,0);lg.addColorStop(0,'#34d3b0');lg.addColorStop(1,'#d98fd0');
+  ctx.strokeStyle=lg;ctx.lineWidth=3;ctx.lineJoin='round';
+  ctx.shadowColor='rgba(52,211,176,.5)';ctx.shadowBlur=12;curve();ctx.stroke();ctx.shadowBlur=0;
+  const L=pts[n-1];ctx.fillStyle='#d98fd0';ctx.shadowColor='rgba(217,143,208,.8)';ctx.shadowBlur=12;
+  ctx.beginPath();ctx.arc(L[0],L[1],5,0,7);ctx.fill();ctx.shadowBlur=0;
+}
+
+try{
+  const q=new URLSearchParams(location.search).get('d');
+  const r=JSON.parse(decodeURIComponent(escape(atob(q.replace(/-/g,'+').replace(/_/g,'/')))));
+  $('ts').textContent=r.ts||'';
+  $('preScore').textContent=r.preScore; $('postScore').textContent=r.postScore;
+  $('preAvg').textContent='평균 '+r.pre; $('postAvg').textContent='평균 '+r.post;
+  const up=r.delta>=0, d=$('delta');
+  d.className='delta '+(up?'up':'down');
+  d.textContent=up?'▲ 안정도 +'+r.delta+' 향상':'▼ 안정도 '+r.delta;
+  // 등급
+  const ps=r.postScore;
+  $('grade').textContent = ps>=85?'깊은 고요':ps>=70?'안정':ps>=50?'보통':'각성';
+  // 세계
+  const isF=r.world==='forest',isD=r.world==='desert';
+  $('world').textContent=isF?'🌲':(isD?'🏜':'🧘');
+  $('worldT').textContent=isF?'숲 (불안)':(isD?'사막 (분노)':'—');
+  // 궤적 + 파생 지표
+  const j=(r.journey&&r.journey.length)?r.journey:[r.pre,r.post];
+  drawSpark(j);
+  const reduce = r.pre>0 ? Math.round((r.pre-r.post)/r.pre*100) : 0;
+  $('reduce').textContent = (reduce>=0?'▼ ':'▲ ')+Math.abs(reduce)+'%';
+  $('reduce').className='v '+(reduce>=0?'good':'warn');
+  $('calmest').textContent = sc(Math.min(...j))+'점';
+  $('peak').textContent = sc(Math.max(...j))+'점';
+  const mean=j.reduce((a,b)=>a+b,0)/j.length;
+  const sd=Math.sqrt(j.reduce((a,b)=>a+(b-mean)*(b-mean),0)/j.length);
+  $('vary').textContent = sd<3?'잔잔함':sd<6?'보통':'흔들림 많음';
+  $('vary').className='v '+(sd<3?'good':sd<6?'':'warn');
+  $('calmT').textContent=fmt(r.calmSec);
+  $('sessT').textContent=fmt(r.sessionSec);
+  $('calmed').textContent = r.calmed?'스스로 진정 도달 ✓':'시간 내 목표 미도달';
+  $('calmed').className='v '+(r.calmed?'good':'warn');
+  // 메시지
+  let msg;
+  if(r.calmed && r.delta>=15) msg='스스로 깊은 고요에 도달했어요. 마음이 한결 가벼워진 하루예요.';
+  else if(r.delta>=15) msg='마음이 크게 가라앉았어요. 몸과 호흡이 잘 따라와 줬어요.';
+  else if(r.delta>=5) msg='천천히, 그러나 확실히 마음이 안정되었어요.';
+  else if(r.delta>=-4) msg='마음이 잔잔히 머물렀어요. 지금 이 순간에 충분해요.';
+  else msg='오늘은 마음이 조금 일렁였어요. 다음 호흡에 다시 머물러 보세요.';
+  $('msg').textContent=msg;
+}catch(e){$('msg').textContent='리포트 데이터를 불러오지 못했어요.';}
+</script>
+</body>
+</html>
