@@ -15,6 +15,9 @@ class Api:
     def open(self, port, bps, cfg):
         return self.core.open(port, bps, cfg)
 
+    def open_test(self, cfg, emotion):
+        return self.core.open_test(cfg, emotion)
+
     def close(self):
         return self.core.close()
 
@@ -44,12 +47,12 @@ if __name__ == "__main__":
     here = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     html = os.path.join(here, "web", "index.html")
     webview.create_window(
-        "EEG NeuroScape · Meditation",
+        "NeuroScape · 체험 운영",
         html,
         js_api=api,
         width=1320,
         height=860,
         min_size=(1100, 720),
-        background_color="#0a0e1a",
+        background_color="#0a0d14",
     )
     webview.start()

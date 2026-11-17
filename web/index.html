@@ -3,39 +3,117 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EEG NeuroScape</title>
+<title>NeuroScape 운영</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="app">
-  <!-- ===== 사이드바 ===== -->
-  <aside class="sidebar">
+<div class="shell">
+
+  <!-- ===== 상단 ===== -->
+  <header class="top">
     <div class="brand">
-      <div class="logo"><img src="logo.png" alt="N" onerror="this.remove()"></div>
+      <div class="logo"><img src="logo.png" alt="" onerror="this.remove()"></div>
       <div>
         <div class="brand-t">NeuroScape</div>
-        <div class="brand-s">EEG Meditation</div>
+        <div class="brand-s">체험 운영</div>
       </div>
     </div>
+    <div class="top-right">
+      <div class="chip" id="chipDev"><i></i><span>EEG 미연결</span></div>
+      <div class="chip" id="chipSig"><i></i><span>신호 없음</span></div>
+      <div class="clock" id="runtime">00:00:00</div>
+      <button class="icon-btn" id="btnSettings" title="설정">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        <span>설정</span>
+      </button>
+    </div>
+  </header>
 
-    <div class="side-scroll">
-      <div class="sect-cap">체험 제어</div>
-      <div class="pill" id="stagePill">● 대기 · 0단계</div>
-      <button class="btn primary" id="btnStart">▶ 체험 시작</button>
-      <div class="btn-row">
-        <button class="btn ghost" id="btnReset">↺ 처음으로</button>
-        <button class="btn ghost" id="btnNext">▸ 다음 단계</button>
+  <!-- ===== 본문 ===== -->
+  <main class="layout">
+    <!-- 진행 -->
+    <section class="card hero">
+      <div class="hero-top">
+        <span class="eyebrow" id="stepNo">준비</span>
+        <span class="timer" id="stageTimer"></span>
       </div>
-      <div class="btn-row">
-        <button class="btn forest" id="btnForest">🌲 숲(불안)</button>
-        <button class="btn desert" id="btnDesert">🏜 사막(분노)</button>
+      <h2 id="stageTitle">관객 맞이 준비</h2>
+      <p class="guide" id="stageGuide">설정에서 EEG 헤드밴드를 연결해 주세요.</p>
+      <div class="bar"><div id="stageBar"></div></div>
+
+      <ol class="timeline" id="timeline">
+        <li data-step="1"><b>인트로</b><span>영상 · 기준 측정</span></li>
+        <li data-step="2"><b>명상</b><span>호흡 안정</span></li>
+        <li data-step="3"><b>분석</b><span>감정 분류</span></li>
+        <li data-step="4"><b>감정 월드</b><span>숲 · 사막</span></li>
+        <li data-step="5"><b>마무리</b><span>리포트 생성</span></li>
+        <li data-step="6"><b>엔딩</b><span>영상</span></li>
+      </ol>
+
+      <div class="checks" id="checks">
+        <div class="check" id="ckDev"><i></i>EEG 연결</div>
+        <div class="check" id="ckSig"><i></i>전극 접촉</div>
+        <div class="check manual"><i></i>VR 헤드셋 착용</div>
       </div>
 
-      <div class="sect-cap">연결</div>
+      <div class="actions">
+        <button class="btn-primary" id="btnPrimary">EEG 연결하기</button>
+        <button class="btn-quiet" id="btnSecondary" hidden>체험 중단</button>
+      </div>
+    </section>
+
+    <!-- 안정도 + 월드 -->
+    <aside class="side">
+      <div class="card calm">
+        <div class="card-h">마음 안정도</div>
+        <div class="gauge-wrap"><canvas id="gauge" width="220" height="220"></canvas></div>
+        <div class="calm-sub" id="scoreSub">측정 전</div>
+      </div>
+      <div class="card world" id="worldCard">
+        <div class="card-h">감정 월드</div>
+        <div class="world-name" id="worldName">분석 전</div>
+        <div class="world-desc" id="worldDesc">명상이 끝나면 뇌파로 월드를 정해요.</div>
+      </div>
+    </aside>
+
+    <!-- 흐름 -->
+    <section class="card trend">
+      <div class="card-h">실시간 안정 흐름
+        <span class="legend"><i class="lg-line"></i>뇌파 활동 <i class="lg-base"></i>기준선</span>
+      </div>
+      <canvas id="trend" height="200"></canvas>
+    </section>
+
+    <!-- 결과 -->
+    <section class="card result" id="resultCard" hidden>
+      <div class="card-h">마음 리포트</div>
+      <div class="res-row">
+        <div class="res-score"><span>체험 전</span><b id="rPre">-</b></div>
+        <div class="res-arrow">→</div>
+        <div class="res-score after"><span>체험 후</span><b id="rPost">-</b></div>
+        <div class="res-delta" id="rDelta"></div>
+        <div class="res-qr" id="rQr"></div>
+      </div>
+      <button class="btn-ghost" id="btnShowVisitor">관객에게 결과 크게 보여주기</button>
+    </section>
+  </main>
+</div>
+
+<!-- ===== 설정 서랍 ===== -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-h">
+    <b>설정</b>
+    <button class="icon-btn" id="btnCloseDrawer" title="닫기">✕</button>
+  </div>
+  <div class="drawer-body">
+
+    <div class="sect">
+      <div class="sect-t">EEG 연결</div>
       <div class="field"><label>포트</label>
         <select id="port"></select>
-        <button class="mini" id="btnRefresh">⟳</button>
+        <button class="mini" id="btnRefresh" title="포트 다시 찾기">⟳</button>
       </div>
       <div class="field"><label>속도</label>
         <select id="bps">
@@ -43,103 +121,84 @@
           <option>57600</option><option selected>115200</option>
         </select>
       </div>
-      <div class="btn-row">
-        <button class="btn connect" id="btnOpen">OPEN</button>
-        <button class="btn ghost" id="btnClear">Clear</button>
-      </div>
+      <button class="btn-solid" id="btnOpen">연결</button>
+      <div class="hint">블루투스 헤드밴드는 보통 COM3이에요. 전원을 켠 뒤 연결하세요.</div>
+    </div>
 
-      <div class="sect-cap">전송 대상 (OSC)</div>
+    <div class="sect">
+      <div class="sect-t">테스트 모드</div>
+      <div class="field"><label>감정</label>
+        <select id="testEmo">
+          <option value="random">랜덤</option>
+          <option value="anger">분노 · 사막</option>
+          <option value="anxiety">불안 · 숲</option>
+        </select>
+      </div>
+      <button class="btn-solid test" id="btnTest">가상 EEG로 연결</button>
+      <div class="hint">헤드밴드 없이 가짜 뇌파로 전체 흐름을 확인해요.</div>
+    </div>
+
+    <div class="sect">
+      <div class="sect-t">운영 도구</div>
+      <div class="tool-grid">
+        <button class="btn-line" id="btnNext">다음 단계로</button>
+        <button class="btn-line" id="btnClear">기록 지우기</button>
+        <button class="btn-line forest" id="btnForest">숲 월드 바로 보기</button>
+        <button class="btn-line desert" id="btnDesert">사막 월드 바로 보기</button>
+      </div>
+      <div class="hint" id="balText">분노/불안 균형 —</div>
+    </div>
+
+    <div class="sect">
+      <div class="sect-t">TouchDesigner 전송 (OSC)</div>
       <div class="field"><label>IP</label><input id="ip" value="127.0.0.1"></div>
       <div class="field"><label>포트</label><input id="oport" value="7000"></div>
       <div class="field"><label>주기</label><input id="interval" value="100"><span class="unit">ms</span></div>
+    </div>
 
-      <div class="sect-cap collapse" id="paramToggle">측정 파라미터 <span class="chev">▾</span></div>
-      <div class="params" id="paramBody">
-        <div class="field"><label>최대 진폭</label><input id="max_amp" value="50000"></div>
-        <div class="pgrid">
-          <div class="pf"><span>최소 명상</span><input id="min_med" value="10"></div>
-          <div class="pf"><span>유효 연속</span><input id="wait" value="3"></div>
-          <div class="pf"><span>분석 측정</span><input id="analysis_dur" value="6"></div>
-          <div class="pf"><span>밸런스 표본</span><input id="balance_n" value="10"></div>
-          <div class="pf"><span>보정폭</span><input id="bal_step" value="0.06"></div>
-          <div class="pf"><span>진정 목표</span><input id="calm_mult" value="1.0"></div>
-          <div class="pf"><span>최소 유지</span><input id="min_view" value="90"></div>
-          <div class="pf"><span>최대 시청</span><input id="max_view" value="180"></div>
-          <div class="pf"><span>로그 보관</span><input id="retention" value="10"></div>
-        </div>
+    <div class="sect">
+      <div class="sect-t">측정 파라미터 <span class="sub">연결할 때 적용</span></div>
+      <div class="pgrid">
+        <div class="pf"><span>최대 진폭</span><input id="max_amp" value="50000"></div>
+        <div class="pf"><span>최소 명상 (초)</span><input id="min_med" value="10"></div>
+        <div class="pf"><span>유효 연속 (초)</span><input id="wait" value="3"></div>
+        <div class="pf"><span>분석 측정 (초)</span><input id="analysis_dur" value="6"></div>
+        <div class="pf"><span>밸런스 표본</span><input id="balance_n" value="10"></div>
+        <div class="pf"><span>보정폭</span><input id="bal_step" value="0.06"></div>
+        <div class="pf"><span>진정 목표 (배)</span><input id="calm_mult" value="1.0"></div>
+        <div class="pf"><span>최소 유지 (초)</span><input id="min_view" value="90"></div>
+        <div class="pf"><span>최대 시청 (초)</span><input id="max_view" value="180"></div>
+        <div class="pf"><span>로그 보관 (분)</span><input id="retention" value="10"></div>
       </div>
     </div>
 
-    <div class="side-foot">
-      <div class="dev" id="devStatus"><span class="dot"></span> 대기 중</div>
-      <div class="sestime"><span>세션 시간</span><b id="runtime">00:00:00</b></div>
+    <div class="sect">
+      <div class="sect-t">신호 로그 <span class="sub" id="rx">0</span></div>
+      <div class="log" id="log"></div>
     </div>
-  </aside>
+  </div>
+</aside>
 
-  <!-- ===== 메인 ===== -->
-  <main class="main">
-    <header class="topbar">
-      <div>
-        <h1>지금 이 순간, <span class="grad">당신의 마음</span>을 들여다보세요</h1>
-        <p class="sub">EEG 기반 실시간 명상 모니터 · TouchDesigner 연동</p>
-      </div>
-      <div class="rxchip">RX <b id="rx">0</b> · <span id="dbg" style="color:var(--faint);font-size:10px">시작…</span></div>
-    </header>
-
-    <section class="grid">
-      <!-- 마음 안정 점수 -->
-      <div class="card c-score">
-        <div class="card-h">마음 안정 점수</div>
-        <div class="score-wrap">
-          <canvas id="gauge" width="200" height="200"></canvas>
-        </div>
-        <div class="score-sub" id="scoreSub">측정 대기</div>
-      </div>
-
-      <!-- 현재 상태 -->
-      <div class="card c-state">
-        <div class="card-h">현재 상태</div>
-        <div class="state-big" id="stateBig">대기</div>
-        <div class="state-desc" id="stateDesc">체험을 시작하면 마음 상태를 분석합니다.</div>
-        <div class="orb" id="orb">🧘</div>
-      </div>
-
-      <!-- 실시간 EEG 지표 -->
-      <div class="card c-metrics">
-        <div class="card-h">실시간 EEG 지표</div>
-        <div class="mrow">
-          <div class="metric"><span class="mk">평균</span><span class="mv teal" id="mAvg">-</span></div>
-          <div class="metric"><span class="mk">순간 피크</span><span class="mv pink" id="mPeak">-</span></div>
-          <div class="metric"><span class="mk">변동폭</span><span class="mv amber" id="mRange">-</span></div>
-        </div>
-        <div class="mrow">
-          <div class="metric sm"><span class="mk">최소/최대</span><span class="mv2" id="mMinMax">-</span></div>
-          <div class="metric sm"><span class="mk">최빈값</span><span class="mv2" id="mMode">-</span></div>
-          <div class="metric sm"><span class="mk">기준선</span><span class="mv2" id="mBase">-</span></div>
-        </div>
-        <div class="balbar"><span id="balText">분노/불안 균형 —</span></div>
-      </div>
-
-      <!-- 마음 안정도 추이 -->
-      <div class="card c-trend">
-        <div class="card-h">마음 안정도 추이 <span class="tag">실시간 EEG</span></div>
-        <canvas id="trend" height="240"></canvas>
-      </div>
-
-      <!-- 체험 전/후 비교 -->
-      <div class="card c-compare">
-        <div class="card-h">체험 전 · 후 뇌파 비교 <span class="tag">명상 결과</span></div>
-        <div class="cmp" id="cmp"><div class="cmp-empty">체험을 완료하면 전/후 안정 상태를 비교해 드려요.</div></div>
-      </div>
-
-      <!-- 실시간 로그 -->
-      <div class="card c-log">
-        <div class="card-h">실시간 신호 로그</div>
-        <div class="log" id="log"></div>
-      </div>
-    </section>
-  </main>
+<!-- ===== 관객 결과 화면 ===== -->
+<div class="visitor" id="visitor" hidden>
+  <button class="v-close" id="btnCloseVisitor" title="닫기">✕</button>
+  <div class="v-inner">
+    <div class="v-eyebrow">NeuroScape</div>
+    <h1 class="v-title">오늘의 마음 여정</h1>
+    <div class="v-world" id="vWorld"></div>
+    <div class="v-scores">
+      <div class="v-sc"><span>체험 전</span><b id="vPre">-</b></div>
+      <div class="v-arrow"></div>
+      <div class="v-sc after"><span>체험 후</span><b id="vPost">-</b></div>
+    </div>
+    <div class="v-delta" id="vDelta"></div>
+    <div class="v-qr-wrap">
+      <div class="v-qr" id="vQr"></div>
+      <div class="v-qr-cap">휴대폰 카메라로 QR을 찍으면<br><b>나의 마음 리포트</b>를 받아볼 수 있어요</div>
+    </div>
+  </div>
 </div>
+
 <script src="app.js"></script>
 </body>
 </html>

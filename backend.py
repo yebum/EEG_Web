@@ -27,11 +27,106 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+class FakeEEGSerial:
+    """테스트 모드용 가상 EEG 헤드셋 (pyserial 대용).
+    BG19와 같은 33바이트 패킷(0xC0 0xA0 … ch1/ch2 24bit)을 250개/초로 만든다.
+    신호 크기는 현재 단계를 따라간다 (2026-06-30 보정값, EEG3 0~81):
+      평온/기준 6, 불안 8.6(숲), 분노 11.7(사막).
+      감정 월드(3)에서는 가끔 크게 튀었다가(오브젝트 파티클 흔들림),
+      최소 유지 시간 직전부터 기준 아래로 가라앉아 진정 → 명상 종료로 넘어간다.
+    emotion: 'anger' | 'anxiety' | 'random'(체험마다 무작위)."""
+    LEVELS = {'calm': 6.0, 'anxiety': 8.6, 'anger': 11.7}
+    RATE = 250
+
+    def __init__(self, core, emotion='random'):
+        self.core = core
+        self.mode = emotion
+        self.emotion = None
+        self.is_open = True
+        self.t_last = time.time()
+        self.buf = bytearray()
+        self.stage3_t = None
+        self.burst_t = 0.0
+        self.burst_until = 0.0
+
+    def _pick(self):
+        import random
+        return self.mode if self.mode in ('anger', 'anxiety') else random.choice(('anger', 'anxiety'))
+
+    def _level(self, now):
+        import random
+        st = self.core.stage
+        if st in (0, 1):
+            self.emotion = None
+        if st != 3:
+            self.stage3_t = None
+        if st in (0, 1):
+            return self.LEVELS['calm']
+        if self.emotion is None:
+            self.emotion = self._pick()
+        emo = self.LEVELS[self.emotion]
+        if st == 2:
+            return emo
+        if st == 3:
+            if self.stage3_t is None:
+                self.stage3_t = now
+            el = now - self.stage3_t
+            calm_after = max(5.0, self.core.active_min_view - 10.0)
+            if el < calm_after:
+                if now > self.burst_t:
+                    self.burst_until = now + random.uniform(1.5, 3.5)
+                    self.burst_t = now + random.uniform(5.0, 9.0)
+                return emo * (1.8 if now < self.burst_until else 1.0)
+            k = min(1.0, (el - calm_after) / 8.0)
+            return emo + (self.LEVELS['calm'] * 0.75 - emo) * k
+        return self.LEVELS['calm'] * 0.8
+
+    def _packets(self, n, now):
+        import random
+        lvl = self._level(now)
+        max_amp = self.core.active_max_amp
+        out = bytearray()
+        for i in range(n):
+            wob = 1.0 + 0.25 * math.sin(now * 1.7 + i * 0.01)
+            amp = (max(0.0, lvl * wob) / 81.0) ** 2 * max_amp
+            pkt = bytearray(33)
+            pkt[0], pkt[1] = 192, 160
+            for off in (3, 6):
+                v = int(random.gauss(0, amp * 1.25)) & 0xFFFFFF
+                pkt[off], pkt[off + 1], pkt[off + 2] = (v >> 16) & 255, (v >> 8) & 255, v & 255
+            out += pkt
+        return out
+
+    @property
+    def in_waiting(self):
+        now = time.time()
+        n = int((now - self.t_last) * self.RATE)
+        if n > 0:
+            self.t_last += n / self.RATE
+            self.buf += self._packets(min(n, 500), now)
+        else:
+            time.sleep(0.002)
+        return len(self.buf)
+
+    def read(self, n):
+        d = bytes(self.buf[:n])
+        del self.buf[:n]
+        return d
+
+    def close(self):
+        self.is_open = False
+
+
 class EEGCore:
     def __init__(self):
         self.is_running = False
         self.ser = None
         self.serial_thread = None
+        self.test_mode = None   # None = 실제 헤드셋, 'anger'/'anxiety'/'random' = 가상 EEG
+        self.last_packet_t = 0.0  # 마지막 패킷 시각 (신호 상태 표시)
+        self.last_valid_t = 0.0   # 마지막 유효(전극 접촉) 패킷 시각
+        self.stage_t = 0.0        # 현재 단계에 들어온 시각
+        self.init_thresh = 1.8    # 첫 관객 분류 기준 (분석 평균 / 기준 평균)
 
         self.start_time = 0
         self.rx_count = 0
@@ -187,6 +282,7 @@ class EEGCore:
 
     def send_stage(self, new_stage):
         self.stage = new_stage
+        self.stage_t = time.time()
         try:
             self.trigger_sock.sendto(self.build_osc_int('/stage', new_stage),
                                      (self.active_ip, self.active_port))
@@ -236,7 +332,11 @@ class EEGCore:
     def list_ports(self):
         return [p.device for p in serial.tools.list_ports.comports()]
 
-    def open(self, port, bps, cfg):
+    def open_test(self, cfg, emotion='random'):
+        """테스트 모드: 헤드셋 없이 가상 EEG 신호로 OPEN (나머지 흐름은 실제와 동일)."""
+        return self.open('TEST', 115200, cfg, test_emotion=emotion)
+
+    def open(self, port, bps, cfg, test_emotion=None):
         if self.is_running:
             return {"ok": True}
         try:
@@ -261,7 +361,12 @@ class EEGCore:
             self.play_state = 0
             self.play2_state = 0
 
-            self.ser = serial.Serial(port, int(bps), timeout=0.1)
+            if test_emotion is not None:
+                self.ser = FakeEEGSerial(self, test_emotion)
+                self.test_mode = test_emotion
+            else:
+                self.ser = serial.Serial(port, int(bps), timeout=0.1)
+                self.test_mode = None
             self.is_running = True
             self.start_time = time.time()
             self.rx_count = 0
@@ -271,7 +376,11 @@ class EEGCore:
             self.send_stage(0)
             self.serial_thread = threading.Thread(target=self.serial_worker, daemon=True)
             self.serial_thread.start()
-            self.log(f"OPEN {port} @ {bps}")
+            if self.test_mode:
+                name = {'anger': '분노(사막)', 'anxiety': '불안(숲)'}.get(self.test_mode, '랜덤')
+                self.log(f"테스트 모드 OPEN · 가상 EEG ({name})")
+            else:
+                self.log(f"OPEN {port} @ {bps}")
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -380,6 +489,9 @@ class EEGCore:
                         raw1 = self.parse_24bit(packet[3], packet[4], packet[5])
                         raw2 = self.parse_24bit(packet[6], packet[7], packet[8])
                         is_valid = not (raw1 == 8388607 and raw2 == 8388607)
+                        self.last_packet_t = time.time()
+                        if is_valid:
+                            self.last_valid_t = self.last_packet_t
                         if not is_valid:
                             amp1 = amp2 = 0; dc_ch1 = dc_ch2 = 0
                         else:
@@ -435,9 +547,15 @@ class EEGCore:
                                     base = self.baseline_avg if self.baseline_avg >= 1 else 1
                                     ratio = a_avg / base
                                     if self.bal_thresh is None:
-                                        self.bal_thresh = ratio
+                                        # 첫 관객: 보정 기준 1.8 (불안 1.5 ↔ 분노 2.06 사이)에서 출발.
+                                        # 예전엔 자기 비율을 기준으로 삼아 첫 관객이 항상 분노로 분류됐다.
+                                        self.bal_thresh = self.init_thresh
                                     thresh = self.bal_thresh
                                     emotion = 1 if ratio >= thresh else 0
+                                    # 테스트 모드: 가상 신호가 고른 감정 월드로 보낸다 (분류 계산은 그대로 표시)
+                                    fake_emo = getattr(self.ser, 'emotion', None) if self.test_mode else None
+                                    if fake_emo in ('anger', 'anxiety'):
+                                        emotion = 1 if fake_emo == 'anger' else 0
                                     self.recent_emotions.append(emotion)
                                     if len(self.recent_emotions) >= 3:
                                         rate = sum(self.recent_emotions) / len(self.recent_emotions)
@@ -568,6 +686,18 @@ class EEGCore:
         emo_name = None
         if self.stage in (3, 4) and self.last_emotion is not None:
             emo_name = "분노" if self.last_emotion == 1 else "불안"
+        now = time.time()
+        if not self.is_running:
+            signal = 'off'
+        elif now - self.last_packet_t > 2.0:
+            signal = 'nodata'      # 블루투스는 열렸지만 패킷이 안 옴
+        elif now - self.last_valid_t > 2.0:
+            signal = 'contact'     # 패킷은 오는데 전극 접촉 불량(포화값)
+        else:
+            signal = 'ok'
+        world = None
+        if self.last_emotion is not None and self.stage in (3, 4, 5, 6):
+            world = 'desert' if self.last_emotion == 1 else 'forest'
         report_out = None
         if self.session_report:
             report_out = dict(self.session_report)
@@ -576,6 +706,7 @@ class EEGCore:
             report_out['url'] = self.report_url
         return {
             "running": self.is_running,
+            "test": bool(self.is_running and getattr(self, 'test_mode', None)),
             "stage": self.stage,
             "stage_name": self.stage_names.get(self.stage, "?"),
             "countdown": None if countdown is None else round(countdown),
@@ -591,4 +722,12 @@ class EEGCore:
             "balance": {"n": len(self.recent_emotions), "anger": sum(self.recent_emotions)},
             "log": list(self.log_lines)[-40:],
             "report": report_out,
+            "signal": signal,
+            "world": world,
+            "exp_active": bool(self.exp_pending or self.stage != 0),
+            "stage_elapsed": round(now - self.stage_t, 1) if self.stage_t else 0,
+            "timing": {"intro": self.start_delay, "min_med": self.active_min_meditation,
+                       "analysis": self.active_analysis_duration, "min_view": self.active_min_view,
+                       "max_view": self.active_max_view, "seek_home": self.seek_home_sec,
+                       "init_world": self.init_world_sec, "outro": 24},
         }

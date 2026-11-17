@@ -1,37 +1,14 @@
 'use strict';
+/* NeuroScape 운영 화면.
+   메인 = 진행 단계 · 안정도 · 실시간 흐름 · 결과.  연결/테스트/파라미터/로그는 설정 서랍. */
 const $ = id => document.getElementById(id);
-let apiReady = false;
-let curRunning = false;
-let compareData = null;
+let S = null;              // 마지막 스냅샷
+let compareData = null;    // 리포트가 오기 전 임시 전/후 값
 let reportData = null;
-
-function renderCompare() {
-  const el = $('cmp');
-  if (!el) return;
-  const r = reportData || compareData;
-  if (!r) {
-    if (!el.querySelector('.cmp-empty'))
-      el.innerHTML = '<div class="cmp-empty">체험을 완료하면 전/후 안정 상태를 비교해 드려요.</div>';
-    return;
-  }
-  const up = r.delta >= 0;
-  const qr = (reportData && reportData.qr)
-    ? `<div class="cmp-qr"><div class="qrbox">${reportData.qr}</div>
-         <div class="qr-cap">📱 QR을 찍으면<br>나의 <b>마음 리포트</b>를<br>볼 수 있어요</div></div>`
-    : '';
-  el.innerHTML =
-    `<div class="cmp-grid">
-       <div class="cmp-col"><span class="cmp-cap">체험 전</span><span class="cmp-score">${r.preScore}</span><span class="cmp-avg">평균 ${r.pre}</span></div>
-       <div class="cmp-arrow">→</div>
-       <div class="cmp-col after"><span class="cmp-cap">체험 후</span><span class="cmp-score">${r.postScore}</span><span class="cmp-avg">평균 ${r.post}</span></div>
-     </div>
-     <div class="cmp-delta ${up ? 'up' : 'down'}">${up ? '▲' : '▼'} 안정도 ${up ? '+' : ''}${r.delta} ${up ? '향상' : '변화'}</div>
-     ${qr}`;
-}
 
 function api() { return window.pywebview && window.pywebview.api; }
 
-// ---------- 컨트롤 ----------
+// ---------- 설정값 ----------
 function cfg() {
   const g = id => $(id).value;
   return {
@@ -46,174 +23,331 @@ async function refreshPorts() {
   if (!api()) return false;
   try {
     const ports = await api().list_ports();
-    const sel = $('port');
-    const cur = sel.value;
+    const sel = $('port'), cur = sel.value;
     sel.innerHTML = '';
     (ports || []).forEach(p => { const o = document.createElement('option'); o.textContent = p; sel.appendChild(o); });
     if (ports && ports.length) {
-      if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
-      else if ([...sel.options].some(o => o.value === 'COM4')) sel.value = 'COM4';
-      else if ([...sel.options].some(o => o.value === 'COM3')) sel.value = 'COM3';
+      const has = v => [...sel.options].some(o => o.value === v);
+      sel.value = has(cur) ? cur : (has('COM3') ? 'COM3' : ports[0]);
       return true;
     }
-    return false;
-  } catch (e) { return false; }
+  } catch (e) { /* 무시 */ }
+  return false;
+}
+
+// ---------- 서랍 / 관객 화면 ----------
+function openDrawer(on) {
+  $('drawer').classList.toggle('on', on);
+  $('scrim').classList.toggle('on', on);
+  if (on) refreshPorts();
+}
+function showVisitor(on) { $('visitor').hidden = !on; }
+
+// ---------- 단계 정의 ----------
+const fmt = s => { s = Math.max(0, Math.round(s)); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
+const WORLD = {
+  forest: { name: '숲 · 불안', desc: '마음이 흔들린 상태로 분류됐어요. 숲 속에서 지금에 머무르도록 안내해요.' },
+  desert: { name: '사막 · 분노', desc: '긴장이 높은 상태로 분류됐어요. 사막의 밤하늘 아래에서 호흡을 고르도록 안내해요.' },
+};
+
+function stepOf(s) {
+  if (s.stage === 0) return s.exp_active ? 1 : 0;
+  if (s.stage === 1) return 2;
+  if (s.stage === 2) return 3;
+  if (s.stage === 3) return 4;
+  if (s.stage === 4 || s.stage === 5) return 5;
+  return 6;
+}
+
+function describe(s) {
+  const t = s.timing || {}, el = s.stage_elapsed || 0;
+  const w = s.world && WORLD[s.world] ? WORLD[s.world].name.split(' ')[0] : '';
+  const sigWarn = s.signal === 'contact' ? ' <span class="warn">전극 접촉이 불안정해요. 헤드밴드 위치를 확인해 주세요.</span>'
+                : s.signal === 'nodata' ? ' <span class="warn">헤드밴드 신호가 끊겼어요. 전원과 블루투스를 확인해 주세요.</span>' : '';
+  switch (stepOf(s)) {
+    case 0:
+      if (!s.running) return { title: '관객 맞이 준비', guide: '먼저 오른쪽 위 <b>설정</b>에서 EEG 헤드밴드를 연결해 주세요.', p: 0, timer: '' };
+      return { title: '관객 맞이 준비', guide: 'EEG 헤드밴드와 VR 헤드셋을 씌워 주세요. 준비되면 <b>체험 시작</b>을 눌러요.' + sigWarn, p: 0, timer: '' };
+    case 1: {
+      const left = s.countdown != null ? s.countdown : 0;
+      return { title: '인트로 영상', guide: '관객이 인트로 영상을 보고 있어요. 처음 10초 동안 평소 뇌파(기준선)를 측정해요.' + sigWarn,
+               p: 1 - left / (t.intro || 71), timer: fmt((t.intro || 71) - left) + ' / ' + fmt(t.intro || 71) };
+    }
+    case 2:
+      return { title: '명상', guide: '편안히 호흡하도록 안내해 주세요. 신호가 안정되면 자동으로 분석을 시작해요.' + sigWarn,
+               p: Math.min(1, el / Math.max(1, t.min_med || 10)), timer: fmt(el) };
+    case 3:
+      return { title: '뇌파 분석', guide: '지금 뇌파를 기준선과 비교해 감정 월드를 정하고 있어요.',
+               p: Math.min(1, el / Math.max(1, t.analysis || 6)), timer: fmt(el) + ' / ' + fmt(t.analysis || 6) };
+    case 4: {
+      const minV = t.min_view || 90, maxV = t.max_view || 180;
+      const g = el < minV ? `뇌파가 흔들리면 오브젝트의 빛도 흔들려요. 최소 ${Math.round(minV)}초 동안 머물러요.`
+                          : '뇌파가 기준선 아래로 가라앉으면 마무리로 넘어가요.';
+      return { title: (w ? w + ' 월드' : '감정 월드'), guide: g + sigWarn, p: Math.min(1, el / maxV), timer: fmt(el) + ' / 최대 ' + fmt(maxV) };
+    }
+    case 5: {
+      const seg = s.stage === 4 ? el : (t.seek_home || 15) + el;
+      const tot = (t.seek_home || 15) + (t.init_world || 10);
+      return { title: '마무리', guide: '장면이 처음 공간으로 돌아오고 있어요. 마음 리포트가 준비됐어요.', p: Math.min(1, seg / tot), timer: fmt(seg) + ' / ' + fmt(tot) };
+    }
+    default: {
+      const o = t.outro || 24;
+      const done = el >= o;
+      return { title: done ? '체험 완료' : '엔딩 영상',
+               guide: done ? '헤드셋과 헤드밴드를 벗겨 드리고, <b>결과 화면</b>으로 QR 리포트를 안내해 주세요.'
+                           : '엔딩 영상이 끝나면 헤드셋을 벗겨 드려요.',
+               p: Math.min(1, el / o), timer: done ? '' : fmt(el) + ' / ' + fmt(o) };
+    }
+  }
+}
+
+// ---------- 버튼 상태 ----------
+function primaryAction(s) {
+  if (!s || !s.running) return { label: 'EEG 연결하기', act: 'connect' };
+  const st = stepOf(s);
+  if (st === 0) return { label: '체험 시작', act: 'start' };
+  if (st === 6) return { label: '결과 화면 보기', act: 'visitor', ready: !!(reportData || compareData) };
+  return { label: '체험 진행 중', act: null };
+}
+function secondaryAction(s) {
+  if (!s || !s.running) return null;
+  const st = stepOf(s);
+  if (st === 0) return null;
+  if (st === 6) return { label: '다음 관객 준비', act: 'next', calm: true };
+  return { label: '체험 중단', act: 'stop' };
+}
+
+async function doAction(act) {
+  const a = api();
+  if (act === 'connect') return openDrawer(true);
+  if (!a) return;
+  if (act === 'start') {
+    if (S && S.signal !== 'ok' && !S.test &&
+        !confirm('헤드밴드 신호가 아직 안정적이지 않아요. 그래도 시작할까요?')) return;
+    compareData = null; reportData = null;
+    return a.start_experience();
+  }
+  if (act === 'visitor') return showVisitor(true);
+  if (act === 'stop') {
+    if (!confirm('체험을 중단하고 처음 대기 상태로 돌아갈까요?')) return;
+    return a.reset();
+  }
+  if (act === 'next') { showVisitor(false); compareData = null; reportData = null; return a.reset(); }
 }
 
 function bind() {
+  $('btnSettings').onclick = () => openDrawer(true);
+  $('btnCloseDrawer').onclick = () => openDrawer(false);
+  $('scrim').onclick = () => openDrawer(false);
+  $('btnShowVisitor').onclick = () => showVisitor(true);
+  $('btnCloseVisitor').onclick = () => showVisitor(false);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { showVisitor(false); openDrawer(false); }
+  });
+  $('btnPrimary').onclick = () => doAction($('btnPrimary').dataset.act);
+  $('btnSecondary').onclick = () => doAction($('btnSecondary').dataset.act);
+
   $('btnRefresh').onclick = refreshPorts;
   $('btnClear').onclick = () => api() && api().clear();
-  $('btnStart').onclick = () => api() && api().start_experience();
-  $('btnReset').onclick = () => api() && api().reset();
   $('btnNext').onclick = () => api() && api().next_stage();
   $('btnForest').onclick = () => api() && api().test_world(0);
   $('btnDesert').onclick = () => api() && api().test_world(1);
-  $('paramToggle').onclick = () => $('paramBody').classList.toggle('hide');
   $('btnOpen').onclick = async () => {
     if (!api()) return;
-    if (!curRunning) {
-      const r = await api().open($('port').value, $('bps').value, cfg());
-      if (!(r && r.ok)) alert('열 수 없음: ' + (r && r.error));
-    } else {
-      await api().close();
-    }
+    if (S && S.running) { await api().close(); return; }
+    const r = await api().open($('port').value, $('bps').value, cfg());
+    if (!(r && r.ok)) alert('헤드밴드에 연결하지 못했어요.\n헤드밴드 전원과 블루투스를 확인해 주세요.\n\n(' + (r && r.error) + ')');
+    else openDrawer(false);
+  };
+  $('btnTest').onclick = async () => {
+    if (!api()) return;
+    if (S && S.running) await api().close();
+    const r = await api().open_test(cfg(), $('testEmo').value);
+    if (!(r && r.ok)) alert('테스트 모드를 시작하지 못했어요: ' + (r && r.error));
+    else openDrawer(false);
   };
 }
 
 // ---------- 게이지 ----------
-function drawGauge(score) {
+function drawGauge(score, active) {
   const cv = $('gauge'), ctx = cv.getContext('2d');
-  const W = cv.width, cx = W / 2, cy = W / 2, r = W / 2 - 22;
+  const W = cv.width, c = W / 2, r = W / 2 - 16;
   ctx.clearRect(0, 0, W, W);
-  // 배경 링
-  ctx.lineWidth = 16; ctx.lineCap = 'round';
-  ctx.strokeStyle = '#222c46';
-  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
-  // 값 링 (그라데이션 + 글로우)
-  const start = -Math.PI / 2;
-  const end = start + Math.PI * 2 * (score / 100);
-  const g = ctx.createLinearGradient(0, 0, W, W);
-  g.addColorStop(0, '#34d3b0'); g.addColorStop(0.5, '#7fd0e0'); g.addColorStop(1, '#d98fd0');
-  ctx.strokeStyle = g; ctx.shadowColor = 'rgba(52,211,176,.55)'; ctx.shadowBlur = 18;
-  ctx.beginPath(); ctx.arc(cx, cy, r, start, end); ctx.stroke();
-  ctx.shadowBlur = 0;
-  // 숫자
-  ctx.fillStyle = '#e6ebf5'; ctx.textAlign = 'center';
-  ctx.font = '700 46px Malgun Gothic'; ctx.fillText(Math.round(score), cx, cy + 10);
-  ctx.fillStyle = '#5f6b85'; ctx.font = '600 13px Malgun Gothic'; ctx.fillText('/ 100', cx, cy + 34);
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 10; ctx.strokeStyle = 'rgba(255,255,255,.06)';
+  ctx.beginPath(); ctx.arc(c, c, r, 0.75 * Math.PI, 2.25 * Math.PI); ctx.stroke();
+  if (active) {
+    const end = 0.75 * Math.PI + 1.5 * Math.PI * Math.max(0, Math.min(1, score / 100));
+    const g = ctx.createLinearGradient(0, W, W, 0);
+    g.addColorStop(0, '#8fb8ff'); g.addColorStop(1, '#7fe0c8');
+    ctx.strokeStyle = g; ctx.shadowColor = 'rgba(127,224,200,.35)'; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(c, c, r, 0.75 * Math.PI, end); ctx.stroke(); ctx.shadowBlur = 0;
+  }
+  ctx.textAlign = 'center';
+  ctx.fillStyle = active ? '#e9edf4' : '#4b5466';
+  ctx.font = '600 58px "Segoe UI Variable Display","Segoe UI",sans-serif';
+  ctx.fillText(active ? Math.round(score) : '–', c, c + 18);
+  ctx.fillStyle = '#6c7689'; ctx.font = '500 13px "Segoe UI","Malgun Gothic",sans-serif';
+  ctx.fillText('/ 100', c, c + 44);
 }
 
-// ---------- 추이 (부드러운 발광 곡선) ----------
+// ---------- 실시간 흐름 ----------
 function drawTrend(data, baseline) {
   const cv = $('trend'), ctx = cv.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
-  const W = cv.clientWidth, H = 240;
-  if (cv.width !== W * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+  const W = cv.clientWidth, H = cv.clientHeight || 200;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, cv.width, cv.height);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, W, H);
-  const padT = 14, padB = 22, padX = 6;
-  const scale = Math.max(30, ...(data || [0]));
-  const yOf = v => (H - padB) - (v / scale) * (H - padT - padB);
-  // 격자
-  ctx.strokeStyle = 'rgba(40,48,76,.6)'; ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) { const y = padT + i * (H - padT - padB) / 4; ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(W - padX, y); ctx.stroke(); }
-  // 기준선
+  const padT = 10, padB = 10, padR = 8;
+  const top = Math.max(24, baseline * 3 || 0, ...(data || [0]));
+  const yOf = v => (H - padB) - (v / top) * (H - padT - padB);
+  ctx.strokeStyle = 'rgba(255,255,255,.04)'; ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) { const y = padT + i * (H - padT - padB) / 4; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
   if (baseline >= 1) {
     const by = yOf(baseline);
-    ctx.strokeStyle = 'rgba(224,182,84,.55)'; ctx.setLineDash([5, 5]);
-    ctx.beginPath(); ctx.moveTo(padX, by); ctx.lineTo(W - padX, by); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(170,179,196,.45)'; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(0, by); ctx.lineTo(W, by); ctx.stroke(); ctx.setLineDash([]);
   }
-  if (!data || data.length < 2) return;
-  const n = data.length;
-  const xOf = i => padX + i / (n - 1) * (W - padX * 2);
-  const pts = data.map((v, i) => [xOf(i), yOf(v)]);
-  // 스무딩 곡선 path (Catmull-Rom → bezier)
-  function curve() {
+  if (!data || data.length < 2) {
+    ctx.fillStyle = '#4b5466'; ctx.font = '13px "Segoe UI","Malgun Gothic",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('헤드밴드가 연결되면 뇌파 활동이 여기에 그려져요', W / 2, H / 2);
+    return;
+  }
+  // 부드럽게: 3포인트 이동평균
+  const sm = data.map((v, i) => (data[Math.max(0, i - 1)] + v + data[Math.min(data.length - 1, i + 1)]) / 3);
+  const n = sm.length, xOf = i => i / (n - 1) * (W - padR);
+  const pts = sm.map((v, i) => [xOf(i), yOf(v)]);
+  const path = () => {
     ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
     for (let i = 0; i < n - 1; i++) {
       const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
-      const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
-      const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
-      ctx.bezierCurveTo(c1x, c1y, c2x, c2y, p2[0], p2[1]);
+      ctx.bezierCurveTo(p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6,
+                        p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6, p2[0], p2[1]);
     }
-  }
-  // 영역 채움 (그라데이션 페이드)
-  curve(); ctx.lineTo(pts[n - 1][0], H - padB); ctx.lineTo(pts[0][0], H - padB); ctx.closePath();
-  const fg = ctx.createLinearGradient(0, padT, 0, H - padB);
-  fg.addColorStop(0, 'rgba(52,211,176,.28)'); fg.addColorStop(1, 'rgba(52,211,176,0)');
+  };
+  path(); ctx.lineTo(W - padR, H - padB); ctx.lineTo(0, H - padB); ctx.closePath();
+  const fg = ctx.createLinearGradient(0, padT, 0, H);
+  fg.addColorStop(0, 'rgba(127,224,200,.18)'); fg.addColorStop(1, 'rgba(127,224,200,0)');
   ctx.fillStyle = fg; ctx.fill();
-  // 발광 곡선
-  const lg = ctx.createLinearGradient(0, 0, W, 0);
-  lg.addColorStop(0, '#34d3b0'); lg.addColorStop(1, '#d98fd0');
-  ctx.strokeStyle = lg; ctx.lineWidth = 2.6; ctx.lineJoin = 'round';
-  ctx.shadowColor = 'rgba(52,211,176,.55)'; ctx.shadowBlur = 12;
-  curve(); ctx.stroke(); ctx.shadowBlur = 0;
-  // 끝점
-  const last = pts[n - 1];
-  ctx.fillStyle = '#d98fd0'; ctx.shadowColor = 'rgba(217,143,208,.8)'; ctx.shadowBlur = 12;
-  ctx.beginPath(); ctx.arc(last[0], last[1], 4.5, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#7fe0c8'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  path(); ctx.stroke();
+  const l = pts[n - 1];
+  ctx.fillStyle = '#7fe0c8'; ctx.beginPath(); ctx.arc(l[0], l[1], 3.5, 0, Math.PI * 2); ctx.fill();
+}
+
+// ---------- 결과 ----------
+function setResult(r) {
+  const has = !!r;
+  $('resultCard').hidden = !has;
+  document.querySelector('.layout').classList.toggle('has-result', has);
+  if (!has) return;
+  const up = r.delta >= 0;
+  $('rPre').textContent = r.preScore; $('rPost').textContent = r.postScore;
+  $('rDelta').textContent = (up ? '+' : '') + r.delta + (up ? ' 안정' : '');
+  $('rDelta').className = 'res-delta' + (up ? '' : ' down');
+  $('vPre').textContent = r.preScore; $('vPost').textContent = r.postScore;
+  $('vDelta').textContent = up ? `마음이 ${r.delta}만큼 더 고요해졌어요` : '오늘은 마음이 조금 분주했어요. 그것도 괜찮아요.';
+  $('vDelta').className = 'v-delta' + (up ? '' : ' down');
+  const w = r.world || (S && S.world);
+  $('vWorld').innerHTML = w ? `당신이 머문 곳 · <b class="${w}">${WORLD[w].name.split(' ')[0]}</b>` : '';
+  const qr = (reportData && reportData.qr) || '';
+  if ($('rQr').dataset.k !== String(qr.length)) {
+    $('rQr').innerHTML = qr; $('vQr').innerHTML = qr; $('rQr').dataset.k = String(qr.length);
+  }
+  $('rQr').hidden = !qr; document.querySelector('.v-qr-wrap').hidden = !qr;
 }
 
 // ---------- 렌더 ----------
 let lastLogKey = '';
 function render(s) {
-  if (!s) return;
-  $('stagePill').textContent = '● ' + s.stage_name + ' · ' + s.stage + '단계' +
-    (s.countdown != null ? ' · ' + s.countdown + '초' : '');
-  $('stagePill').classList.toggle('emo', s.stage === 3 || s.stage === 4);
-  $('rx').textContent = s.rx;
+  S = s;
+  // 상단 상태
+  const dev = $('chipDev');
+  dev.className = 'chip' + (s.test ? ' test' : (s.running ? ' ok' : ''));
+  dev.querySelector('span').textContent = s.test ? '테스트 모드' : (s.running ? 'EEG 연결됨' : 'EEG 미연결');
+  const sig = $('chipSig');
+  const sigTxt = { off: '신호 없음', nodata: '신호 끊김', contact: '전극 확인', ok: '착용 양호' }[s.signal] || '신호 없음';
+  sig.className = 'chip' + (s.signal === 'ok' ? ' ok' : (s.running ? ' warn' : ''));
+  sig.querySelector('span').textContent = sigTxt;
   $('runtime').textContent = s.runtime;
-  $('devStatus').className = 'dev' + (s.running ? ' on' : '');
-  $('devStatus').innerHTML = '<span class="dot"></span> ' + (s.running ? '디바이스 연결됨' : '대기 중');
-  // OPEN/CLOSE 버튼을 실제 연결상태에 동기화 (새로고침 후에도 정확)
-  curRunning = s.running;
-  const bo = $('btnOpen');
-  bo.textContent = s.running ? 'CLOSE' : 'OPEN';
-  bo.classList.toggle('desert', s.running);
-  bo.classList.toggle('connect', !s.running);
 
-  // 상태 카드
-  let state = '대기', desc = '체험을 시작하면 마음 상태를 분석합니다.', orb = '🧘';
-  if (s.emotion_name === '분노') { state = '분노'; desc = '긴장이 높아요. 천천히 호흡해 보세요.'; orb = '🏜'; }
-  else if (s.emotion_name === '불안') { state = '불안'; desc = '마음이 흔들려요. 지금에 머물러 보세요.'; orb = '🌲'; }
-  else if (s.stage >= 1) { state = '차분함'; desc = '마음이 안정되고 균형을 이루고 있어요.'; orb = '🧘'; }
-  $('stateBig').textContent = state; $('stateDesc').textContent = desc; $('orb').textContent = orb;
+  // 진행
+  const st = stepOf(s), d = describe(s);
+  $('stepNo').textContent = st === 0 ? '준비' : `STEP ${st} / 6`;
+  $('stageTitle').textContent = d.title;
+  $('stageGuide').innerHTML = d.guide;
+  $('stageTimer').textContent = d.timer || '';
+  $('stageBar').style.width = Math.round(Math.max(0, Math.min(1, d.p)) * 100) + '%';
+  document.querySelectorAll('#timeline li').forEach(li => {
+    const k = +li.dataset.step;
+    li.classList.toggle('done', st > k || (st === 6 && k === 6 && (s.stage_elapsed || 0) >= ((s.timing || {}).outro || 24)));
+    li.classList.toggle('now', st === k);
+  });
+  $('checks').hidden = st !== 0;
+  $('ckDev').className = 'check' + (s.running ? ' ok' : '');
+  $('ckSig').className = 'check' + (s.signal === 'ok' ? ' ok' : (s.running ? ' warn' : ''));
 
-  const st = s.stats;
-  if (st) {
-    $('mAvg').textContent = st.avg; $('mPeak').textContent = st.peak; $('mRange').textContent = st.range;
-    $('mMinMax').textContent = st.min + ' / ' + st.max; $('mMode').textContent = st.mode;
-  }
-  $('mBase').textContent = s.baseline >= 1 ? s.baseline + ' (' + s.baseline_n + ')' : '-';
-  $('scoreSub').textContent = s.running ? '실시간 진정도' : '측정 대기';
-  const b = s.balance;
-  $('balText').textContent = b && b.n ? `분노/불안 균형 — 최근 ${b.n}명 중 분노 ${b.anger} / 불안 ${b.n - b.anger}` : '분노/불안 균형 —';
-
-  // 전/후 비교: 새 체험 시작 시 리셋, 명상 종료(4) 진입 시 캡처
-  if (s.stage <= 1) { compareData = null; reportData = null; }
-  if (s.report && s.report.ready) reportData = s.report;
+  // 버튼
+  if (s.stage <= 3) { compareData = null; reportData = null; }   // 새 관객 / 진행 중엔 결과 숨김
+  if (s.report && s.report.ready && s.stage >= 4) reportData = s.report;
   if (s.stage === 4 && !compareData && s.baseline >= 1 && s.stats) {
     const sc = a => Math.max(0, Math.min(100, Math.round(100 - a * 2.5)));
     compareData = { pre: s.baseline, post: s.stats.avg, preScore: sc(s.baseline), postScore: sc(s.stats.avg) };
     compareData.delta = compareData.postScore - compareData.preScore;
   }
-  renderCompare();
+  const pa = primaryAction(s), sa = secondaryAction(s);
+  const bp = $('btnPrimary');
+  bp.textContent = pa.label; bp.dataset.act = pa.act || '';
+  bp.disabled = !pa.act || (pa.act === 'visitor' && !pa.ready);
+  const bs = $('btnSecondary');
+  bs.hidden = !sa;
+  if (sa) { bs.textContent = sa.label; bs.dataset.act = sa.act; bs.classList.toggle('calm', !!sa.calm); }
 
-  drawGauge(s.score || 0);
-  drawTrend(s.trend, s.baseline);
+  // 안정도
+  // 안정도: 마음 리포트와 같은 기준 (100 - 평균×2.5) 으로 맞춰 운영 화면과 관객 결과가 일치하게
+  const active = s.running && (s.stats != null) && st >= 1;
+  const calm = s.stats ? Math.max(0, Math.min(100, Math.round(100 - s.stats.avg * 2.5))) : 0;
+  drawGauge(calm, active);
+  $('scoreSub').textContent = !s.running ? '측정 전' : (st === 0 ? '체험을 시작하면 측정해요' : (s.baseline >= 1 ? '기준선 대비 지금의 고요함' : '기준선 측정 중'));
 
-  // 로그 (최근 40줄로 잘려 길이가 40 고정되므로, 마지막 줄+길이로 변경 감지)
-  if (s.log) {
+  // 월드
+  const wc = $('worldCard');
+  wc.className = 'card world' + (s.world ? ' ' + s.world : '');
+  $('worldName').textContent = s.world ? WORLD[s.world].name : (st === 3 ? '분석 중…' : '분석 전');
+  $('worldDesc').textContent = s.world ? WORLD[s.world].desc : '명상이 끝나면 뇌파로 월드를 정해요.';
+
+  drawTrend(st >= 1 ? s.trend : [], s.baseline);
+  setResult(reportData || compareData);
+
+  // 설정 서랍 내부
+  const bo = $('btnOpen');
+  bo.textContent = s.running && !s.test ? '연결 끊기' : '연결';
+  bo.classList.toggle('on', s.running && !s.test);
+  const bt = $('btnTest');
+  bt.textContent = s.test ? '테스트 종료' : '가상 EEG로 연결';
+  bt.classList.toggle('on', !!s.test);
+  if (s.test) bt.onclick = async () => { await api().close(); };
+  else bt.onclick = async () => {
+    if (!api()) return;
+    if (S && S.running) await api().close();
+    const r = await api().open_test(cfg(), $('testEmo').value);
+    if (!(r && r.ok)) alert('테스트 모드를 시작하지 못했어요: ' + (r && r.error)); else openDrawer(false);
+  };
+  $('rx').textContent = s.rx + ' 패킷';
+  const b = s.balance;
+  $('balText').textContent = b && b.n ? `최근 ${b.n}명 · 분노(사막) ${b.anger} / 불안(숲) ${b.n - b.anger}` : '아직 체험한 관객이 없어요.';
+
+  if (s.log && $('drawer').classList.contains('on')) {
     const key = s.log.length + '|' + (s.log[s.log.length - 1] || '');
     if (key !== lastLogKey) {
       lastLogKey = key;
       const el = $('log');
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       el.innerHTML = s.log.map(l => {
-        let cls = '';
-        if (l.includes('감정 분류') || l.includes('단계 전환') || l.includes('테스트')) cls = 'evt';
-        else if (l.includes('기준 평균')) cls = 'base';
-        return `<div class="${cls}">${l}</div>`;
+        const cls = (l.includes('감정 분류') || l.includes('단계 전환') || l.includes('테스트')) ? 'evt' : (l.includes('기준 평균') ? 'base' : '');
+        return `<div class="${cls}">${l.replace(/</g, '&lt;')}</div>`;
       }).join('');
       if (atBottom) el.scrollTop = el.scrollHeight;
     }
@@ -221,28 +355,20 @@ function render(s) {
 }
 
 async function loop() {
-  const dbg = $('dbg');
   const a = api();
   if (a) {
-    // 포트 목록이 비어 있으면(초기/새로고침 직후) 채워질 때까지 자동 재시도
-    if (!$('port').options.length) { await refreshPorts(); }
-    try {
-      const s = await a.poll();
-      render(s);
-      if (dbg) dbg.textContent = 'API OK';
-    } catch (e) {
-      if (dbg) dbg.textContent = 'poll 오류: ' + e;
-    }
+    if (!$('port').options.length) await refreshPorts();
+    try { render(await a.poll()); } catch (e) { /* 다음 주기에 재시도 */ }
   } else {
-    if (dbg) dbg.textContent = 'API 대기중…';
+    render(DEMO);
   }
-  setTimeout(loop, 120);
+  setTimeout(loop, 150);
 }
 
-function init() {
-  bind();       // 클릭 핸들러는 api() 를 클릭 시점에 확인하므로 즉시 바인딩 안전
-  loop();       // 폴링 시작 (api 준비되면 자동으로 값 불러옴)
-}
-window.addEventListener('pywebviewready', () => { apiReady = true; });
+// pywebview 밖(브라우저 미리보기)에서 화면을 보기 위한 정적 상태
+const DEMO = { running: false, test: false, stage: 0, exp_active: false, signal: 'off', runtime: '00:00:00',
+  stats: null, score: 0, trend: [], baseline: 0, rx: 0, balance: { n: 0, anger: 0 }, log: [], timing: {} };
+
+function init() { bind(); loop(); }
 if (document.readyState !== 'loading') init();
 else document.addEventListener('DOMContentLoaded', init);
