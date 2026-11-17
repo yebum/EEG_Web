@@ -19,20 +19,32 @@ function cfg() {
   };
 }
 
+let portsKey = null;       // 마지막으로 그린 포트 목록 (바뀔 때만 다시 그림)
+let portsChecked = 0;     // 마지막 확인 시각
 async function refreshPorts() {
   if (!api()) return false;
-  try {
-    const ports = await api().list_ports();
-    const sel = $('port'), cur = sel.value;
-    sel.innerHTML = '';
-    (ports || []).forEach(p => { const o = document.createElement('option'); o.textContent = p; sel.appendChild(o); });
-    if (ports && ports.length) {
-      const has = v => [...sel.options].some(o => o.value === v);
-      sel.value = has(cur) ? cur : (has('COM3') ? 'COM3' : ports[0]);
-      return true;
-    }
-  } catch (e) { /* 무시 */ }
-  return false;
+  portsChecked = Date.now();
+  let ports = [];
+  try { ports = (await api().list_ports()) || []; } catch (e) { return false; }
+  const key = ports.join(',');
+  if (key === portsKey) return ports.length > 0;
+  portsKey = key;
+  const sel = $('port'), cur = sel.value;
+  sel.innerHTML = '';
+  if (!ports.length) {
+    const o = document.createElement('option');
+    o.textContent = 'COM 포트 없음'; o.value = ''; o.disabled = true; o.selected = true;
+    sel.appendChild(o);
+    sel.disabled = true;
+    $('portHint').innerHTML = '<span class="warn">헤드밴드가 블루투스에 페어링돼 있지 않아요.</span> ' +
+      'Windows 설정 → 블루투스 및 장치 → 장치 추가에서 <b>BG19_STD</b>를 추가해 주세요(PIN 0000). 추가하면 여기에 자동으로 나타나요.';
+    return false;
+  }
+  ports.forEach(p => { const o = document.createElement('option'); o.textContent = p; o.value = p; sel.appendChild(o); });
+  sel.disabled = false;
+  sel.value = ports.includes(cur) ? cur : (ports.includes('COM3') ? 'COM3' : ports[0]);
+  $('portHint').textContent = '블루투스 헤드밴드는 보통 번호가 낮은 쪽(예: COM3)이에요. 전원을 켠 뒤 연결하세요.';
+  return true;
 }
 
 // ---------- 서랍 / 관객 화면 ----------
@@ -155,6 +167,7 @@ function bind() {
   $('btnOpen').onclick = async () => {
     if (!api()) return;
     if (S && S.running) { await api().close(); return; }
+    if (!$('port').value) { await refreshPorts(); if (!$('port').value) return; }
     const r = await api().open($('port').value, $('bps').value, cfg());
     if (!(r && r.ok)) alert('헤드밴드에 연결하지 못했어요.\n헤드밴드 전원과 블루투스를 확인해 주세요.\n\n(' + (r && r.error) + ')');
     else openDrawer(false);
@@ -325,6 +338,7 @@ function render(s) {
   const bo = $('btnOpen');
   bo.textContent = s.running && !s.test ? '연결 끊기' : '연결';
   bo.classList.toggle('on', s.running && !s.test);
+  bo.disabled = !s.running && !$('port').value;
   const bt = $('btnTest');
   bt.textContent = s.test ? '테스트 종료' : '가상 EEG로 연결';
   bt.classList.toggle('on', !!s.test);
@@ -357,7 +371,8 @@ function render(s) {
 async function loop() {
   const a = api();
   if (a) {
-    if (!$('port').options.length) await refreshPorts();
+    // 포트 목록: 처음 한 번 + 설정 서랍이 열려 있는 동안 3초마다 다시 확인 (페어링하면 바로 나타나게)
+    if (portsKey === null || ($('drawer').classList.contains('on') && Date.now() - portsChecked > 3000)) await refreshPorts();
     try { render(await a.poll()); } catch (e) { /* 다음 주기에 재시도 */ }
   } else {
     render(DEMO);

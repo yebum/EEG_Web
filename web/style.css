@@ -171,10 +171,15 @@ button{font-family:inherit;cursor:pointer}
 .btn-solid{width:100%;height:40px;border-radius:10px;border:none;font-weight:650;font-size:13.5px;
   background:var(--calm);color:#06231b;margin-top:3px;transition:.15s}
 .btn-solid:hover{filter:brightness(1.07)}
+.btn-solid:disabled{background:rgba(255,255,255,.06);color:var(--ink-3);cursor:default;filter:none}
 .btn-solid.on{background:rgba(240,138,138,.14);color:var(--bad);border:1px solid rgba(240,138,138,.35)}
 .btn-solid.test{background:rgba(195,166,255,.16);color:var(--lilac);border:1px solid rgba(195,166,255,.35)}
 .btn-solid.test.on{background:rgba(195,166,255,.3)}
-.hint{font-size:11.5px;color:var(--ink-3);margin-top:9px;line-height:1.5}
+.hint{font-size:11.5px;color:var(--ink-3);margin-top:9px;line-height:1.55}
+.hint .warn{color:var(--warn)}
+.hint b{color:var(--ink-2)}
+.field select:disabled{color:var(--ink-3);cursor:default}
+.field select option{color:var(--ink)}
 .tool-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .btn-line{height:38px;border-radius:10px;background:transparent;border:1px solid var(--line-2);color:var(--ink-2);
   font-size:12.5px;font-weight:600;transition:.15s}
