@@ -34,8 +34,10 @@ class FakeEEGSerial:
       평온/기준 6, 불안 8.6(숲), 분노 11.7(사막).
       감정 월드(3)에서는 가끔 크게 튀었다가(오브젝트 파티클 흔들림),
       최소 유지 시간 직전부터 기준 아래로 가라앉아 진정 → 명상 종료로 넘어간다.
-    emotion: 'anger' | 'anxiety' | 'random'(체험마다 무작위)."""
-    LEVELS = {'calm': 6.0, 'anxiety': 8.6, 'anger': 11.7}
+    emotion: 'anger' | 'anxiety' | 'random'(체험마다 무작위).
+    리포트가 '나아진 결과'로 나오도록 막 도착한 상태(arrive)는 조금 높게, 마지막 진정(rest)은 낮게 둔다
+    (체험 전 약 80점 → 체험 후 약 92점)."""
+    LEVELS = {'calm': 6.0, 'arrive': 10.5, 'rest': 4.0, 'anxiety': 8.6, 'anger': 11.7}
     RATE = 250
 
     def __init__(self, core, emotion='random'):
@@ -60,7 +62,9 @@ class FakeEEGSerial:
             self.emotion = None
         if st != 3:
             self.stage3_t = None
-        if st in (0, 1):
+        if st == 0:
+            return self.LEVELS['arrive']   # 막 도착해 긴장이 남아 있는 상태 (기준선)
+        if st == 1:
             return self.LEVELS['calm']
         if self.emotion is None:
             self.emotion = self._pick()
@@ -78,8 +82,8 @@ class FakeEEGSerial:
                     self.burst_t = now + random.uniform(5.0, 9.0)
                 return emo * (1.8 if now < self.burst_until else 1.0)
             k = min(1.0, (el - calm_after) / 8.0)
-            return emo + (self.LEVELS['calm'] * 0.75 - emo) * k
-        return self.LEVELS['calm'] * 0.8
+            return emo + (self.LEVELS['rest'] - emo) * k
+        return self.LEVELS['rest']
 
     def _packets(self, n, now):
         import random
@@ -240,11 +244,21 @@ class EEGCore:
             return max(0, min(100, round(100 - a * 2.5)))
         pre = self.baseline_avg
         world = 'desert' if self.last_emotion == 1 else ('forest' if self.last_emotion == 0 else None)
+        if self.test_mode:
+            # 테스트 모드: 감정 월드를 일찍 건너뛰어도 리포트는 '나아진 결과'로 보이게
+            # (체험 후 평균을 기준선의 약 절반으로, 스스로 진정한 것으로 표시)
+            target = (pre if pre >= 1 else 8.5) * 0.4
+            post_avg = min(post_avg, target)
+            calmed = True
         # 세션 궤적을 최대 40점으로 다운샘플
         j = list(self.journey)
         if len(j) > 40:
             step = len(j) / 40.0
             j = [j[int(i * step)] for i in range(40)]
+        if self.test_mode and j and j[-1] > post_avg:
+            # 그래프 끝부분이 체험 후 값으로 부드럽게 내려앉게
+            last = j[-1]
+            j += [round(last + (post_avg - last) * k / 4, 1) for k in range(1, 5)]
         rep = {
             'pre': round(pre, 1), 'post': round(post_avg, 1),
             'preScore': sc(pre), 'postScore': sc(post_avg), 'delta': sc(post_avg) - sc(pre),
