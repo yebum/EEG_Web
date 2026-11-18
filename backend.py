@@ -127,6 +127,7 @@ class EEGCore:
         self.last_valid_t = 0.0   # 마지막 유효(전극 접촉) 패킷 시각
         self.stage_t = 0.0        # 현재 단계에 들어온 시각
         self.init_thresh = 1.8    # 첫 관객 분류 기준 (분석 평균 / 기준 평균)
+        self.skip_req = False     # 운영자 '다음 단계로' 요청 (워커가 처리)
 
         self.start_time = 0
         self.rx_count = 0
@@ -361,6 +362,7 @@ class EEGCore:
             self.play_state = 0
             self.play2_state = 0
 
+            self.skip_req = False
             if test_emotion is not None:
                 self.ser = FakeEEGSerial(self, test_emotion)
                 self.test_mode = test_emotion
@@ -426,6 +428,11 @@ class EEGCore:
         return {"ok": True}
 
     def manual_next_stage(self):
+        # 연결 중이면 워커가 자동 진행과 같은 방식으로 다음 단계에 들어가게 한다
+        # (단계 타이머·기준선·감정 분류·리포트가 워커 안에 있어서, 단계 번호만 바꾸면 멈춘다)
+        if self.is_running:
+            self.skip_req = True
+            return {"ok": True}
         nxt = (self.stage + 1) % len(self.stage_names)
         self.send_stage(nxt)
         return {"ok": True}
@@ -480,6 +487,52 @@ class EEGCore:
                         self.stage1_start_time = time.time()
                         self.send_stage(1)
 
+                # 운영자 '다음 단계로': 자동 진행과 같은 준비를 하고 다음 단계로 넘긴다
+                if self.skip_req:
+                    self.skip_req = False
+                    now = time.time()
+                    st = self.stage
+                    if st == 0:
+                        if not baseline_locked or self.baseline_avg < 1:
+                            vals = baseline_vals or list(self.stat_window)[-100:]
+                            self.baseline_avg = (sum(vals) / len(vals)) if vals else 6.0
+                            if baseline1_vals:
+                                self.baseline1 = sum(baseline1_vals) / len(baseline1_vals)
+                                self.baseline2 = sum(baseline2_vals) / len(baseline2_vals)
+                            self.baseline_n = len(vals)
+                            baseline_locked = True
+                            self.log(f"기준 평균 고정(건너뜀): {self.baseline_avg:.2f} ({self.baseline_n}샘플)")
+                        self.exp_pending = False
+                        self.play_state = 0
+                        self.stage1_start_time = now
+                        valid_since = None
+                        self.send_stage(1)
+                    elif st == 1:
+                        analysis3_vals = []; stage2_start = now
+                        self.send_stage(2)
+                    elif st == 2:
+                        # 다음 샘플에서 바로 분류
+                        stage2_start = now - self.active_analysis_duration - 1
+                        if not analysis3_vals:
+                            analysis3_vals = [self.stat_window[-1] if self.stat_window else 6]
+                    elif st == 3:
+                        w = list(calm_window) or list(self.stat_window)[-30:] or [self.baseline_avg]
+                        el = (now - stage3_start) if stage3_start else 0
+                        self.capture_report(sum(w) / len(w), el, False)
+                        stage3_start = None; stage4_start = now
+                        self.send_stage(4)
+                    elif st == 4:
+                        stage4_start = None; stage5_start = now; self.last_emotion = None
+                        self.send_stage(5)
+                    elif st == 5:
+                        stage5_start = None
+                        self.play2_state = 1
+                        self.send_osc('/reloadpulse2', 1)
+                        reload2_off = now + 0.15
+                        self.send_stage(6)
+                    else:
+                        self.reset_experience()
+
                 if self.ser.in_waiting > 0:
                     buffer += self.ser.read(self.ser.in_waiting)
 
@@ -527,6 +580,9 @@ class EEGCore:
                                     measure_start_seen = self.exp_start_time
                                     baseline_vals = []; baseline1_vals = []; baseline2_vals = []
                                     baseline_locked = False
+                                    # 새 관객: 이전 체험의 단계 타이머가 남지 않게
+                                    analysis3_vals = []; stage2_start = None
+                                    stage3_start = stage4_start = stage5_start = None
                                 if current_time - self.exp_start_time < self.measure_duration:
                                     if is_valid:
                                         baseline_vals.append(o3); baseline1_vals.append(o1); baseline2_vals.append(o2)
@@ -698,6 +754,8 @@ class EEGCore:
         world = None
         if self.last_emotion is not None and self.stage in (3, 4, 5, 6):
             world = 'desert' if self.last_emotion == 1 else 'forest'
+        elif self.stage in (5, 6) and self.session_report:
+            world = self.session_report.get('world')   # 마무리·엔딩에서도 머문 월드를 계속 표시
         report_out = None
         if self.session_report:
             report_out = dict(self.session_report)
