@@ -298,6 +298,12 @@ class EEGCore:
     def send_stage(self, new_stage):
         self.stage = new_stage
         self.stage_t = time.time()
+        # 영상 재생 신호 정리: 인트로는 대기(0)에서만, 엔딩은 엔딩(6)에서만.
+        # (단계를 직접 바꾸는 버튼으로 넘어가도 끝난 영상이 장면을 덮지 않게)
+        if new_stage != 0:
+            self.play_state = 0
+        if new_stage != 6:
+            self.play2_state = 0
         try:
             self.trigger_sock.sendto(self.build_osc_int('/stage', new_stage),
                                      (self.active_ip, self.active_port))
@@ -408,7 +414,14 @@ class EEGCore:
                 self.ser.close()
             except Exception:
                 pass
+        self.play_state = 0
+        self.play2_state = 0
+        self.exp_pending = False
         self.send_stage(0)
+        for addr in ('/play', '/play2', '/forest_obj', '/desert_obj'):
+            self.send_osc(addr, 0)
+        self.send_osc('/mix', 1)
+        self.send_osc('/splataindex', 2)
         self.log("CLOSE")
         return {"ok": True}
 
